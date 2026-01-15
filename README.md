@@ -57,8 +57,15 @@ VITE_SUPABASE_ANON_KEY=sua_chave_anonima_do_supabase
 
 ### 3. Executar o Projeto
 
+**Desenvolvimento Local:**
 ```bash
 npm run dev
+```
+
+**Build para Produção:**
+```bash
+npm run build
+npm run start
 ```
 
 ## Modo Read-Only
@@ -86,21 +93,21 @@ O sistema está configurado estritamente em modo Read-Only:
 ### ✅ Fase 3: Dashboard Comprador - CONCLUÍDA
 - [x] KPIs: Total de Compradores e Total de Consultas
 - [x] Gráfico de Novos Compradores (linha)
+- [x] Gráfico de Novos Fornecedores (linha)
 - [x] Gráfico de Volume de Consultas (barras)
+- [x] Card de Últimas 5 Consultas (com JSON tratado)
 - [x] Filtro temporal (Diária, Semanal, Mensal)
 - [x] Tabela de Compradores com drill-down para consultas
+- [x] Colunas "Total Consultas" e "Consultas (30 dias)"
+
+### ✅ Fase 4: Dashboard Fornecedor - CONCLUÍDA
+- [x] Tabela de Fornecedores Agregados
+- [x] Buckets de score (0-10, 11-25, 26-50, 51-69, 70-90, 90-100)
+- [x] Drill-down para consultas que geraram aparições
+- [x] Integração com cnpj_db.empresas para razão social
+- [x] Colunas "Cadastrado" e "Plano Ativo"
 
 ## Próximos Passos (Conforme PRD)
-
-### Fase 4: Dashboard Fornecedor
-- [ ] KPI: Total de Fornecedores Pesquisados
-- [ ] Tabela de Aparições Aglutinada com buckets de score
-- [ ] Drill-down para consultas originais
-
-### Fase 4: Dashboard Fornecedor
-- [ ] KPI: Total de Fornecedores Pesquisados
-- [ ] Tabela de Aparições Aglutinada com buckets de score
-- [ ] Drill-down para consultas originais
 
 ### Fase 5: Refinamento Visual
 - [ ] Aplicar paleta Azul/Branco
@@ -115,4 +122,33 @@ O sistema está configurado estritamente em modo Read-Only:
 - **Supabase**: Backend como serviço (PostgreSQL)
 - **TypeScript**: Tipagem estática
 - **Vite**: Build tool e dev server
+
+## 🚂 Deploy no Railway
+
+Este projeto está pronto para deploy no Railway. Para instruções detalhadas, consulte:
+
+📖 **[DEPLOY_RAILWAY.md](./DEPLOY_RAILWAY.md)**
+
+### Resumo Rápido
+
+1. **Conecte o repositório GitHub ao Railway**
+2. **Configure as variáveis de ambiente**:
+   ```env
+   VITE_SUPABASE_CONNECTION_STRING=postgresql://...
+   VITE_SUPABASE_ANON_KEY=...
+   ```
+3. **Deploy automático** - O Railway detecta as configurações em:
+   - `railway.json` - Configuração de build e deploy
+   - `nixpacks.toml` - Build system
+   - `package.json` - Scripts
+
+### Arquivos de Configuração Railway
+
+- ✅ `railway.json` - Configuração principal
+- ✅ `nixpacks.toml` - Build configuration
+- ✅ `.railwayignore` - Arquivos excluídos do deploy
+- ✅ `vite.config.ts` - Porta dinâmica configurada
+- ✅ `package.json` - Script `start` para produção
+
+**URL após deploy**: `https://[seu-app].up.railway.app`
 
