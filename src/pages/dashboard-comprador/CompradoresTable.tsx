@@ -77,17 +77,10 @@ export const CompradoresTable = () => {
   // Debug: Log detalhado
   console.log("🔍 Debug tabela compradores:", {
     isLoading: tableProps.loading,
-    hasError: !!tableError,
     dataSource: tableProps.dataSource?.length || 0,
     pagination: tableProps.pagination,
-    error: tableError,
     firstRecord: tableProps.dataSource?.[0],
   });
-
-  // Debug: Log erros
-  if (tableError) {
-    console.error("❌ Erro na tabela de compradores:", tableError);
-  }
 
   // Função para buscar consultas de um comprador
   const ConsultasSubTable = ({ compradorId }: { compradorId: string }) => {
@@ -364,7 +357,10 @@ export const CompradoresTable = () => {
 
     // Chamar handler original do Refine para outras colunas e paginação
     if (tableProps.onChange) {
-      tableProps.onChange(pagination, filters, sorter, { currentDataSource: [] });
+      tableProps.onChange(pagination, filters, sorter, { 
+        currentDataSource: [],
+        action: "paginate" as const
+      });
     }
   };
 

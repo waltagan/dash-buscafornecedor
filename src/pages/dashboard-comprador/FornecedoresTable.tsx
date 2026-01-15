@@ -46,12 +46,6 @@ const renderJson = (value: unknown, maxLength: number = 80) => {
   }
 };
 
-// Interface para a tabela de empresas do CNPJ
-type EmpresaCNPJ = {
-  cnpj_basico: string;
-  razao_social?: string | null;
-};
-
 export const FornecedoresTable = () => {
   const [expandedRowKeys, setExpandedRowKeys] = useState<React.Key[]>([]);
   const [nomesFornecedores, setNomesFornecedores] = useState<Map<string, string>>(new Map());

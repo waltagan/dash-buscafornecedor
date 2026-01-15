@@ -86,7 +86,7 @@ export const DashboardComprador = () => {
   });
 
   // Buscar aparições para mostrar fornecedores encontrados
-  const { data: aparicoesData, isLoading: isLoadingAparicoes } = useList<Aparicoes>({
+  const { isLoading: isLoadingAparicoes } = useList<Aparicoes>({
     resource: "aparicoes",
     pagination: {
       mode: "off",
