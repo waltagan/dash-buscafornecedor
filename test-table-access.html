@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Supabase Table Access</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+    <h1>Test Supabase Table Access</h1>
+    <div id="results"></div>
+    
+    <script>
+        // Substitua pelos seus valores do .env
+        const SUPABASE_URL = 'https://hccolkrnyrxcbxuuajwq.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhjY29sa3JueXJ4Y2J4dXVhandxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDYzODc2OTUsImV4cCI6MjA2MTk2MzY5NX0.qYkop3Qkpk7moRwiS4afwhIG7HBepJN8R5peqSIJHOU';
+        
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+            db: {
+                schema: 'busca_fornecedor'
+            }
+        });
+        
+        const resultsDiv = document.getElementById('results');
+        
+        async function testTable(tableName) {
+            resultsDiv.innerHTML += `<h2>Testando tabela: ${tableName}</h2>`;
+            
+            try {
+                const { data, error, count } = await supabase
+                    .from(tableName)
+                    .select('*', { count: 'exact' })
+                    .limit(5);
+                
+                if (error) {
+                    resultsDiv.innerHTML += `<p style="color: red;">❌ Erro: ${error.message} (${error.code})</p>`;
+                    resultsDiv.innerHTML += `<pre>${JSON.stringify(error, null, 2)}</pre>`;
+                } else {
+                    resultsDiv.innerHTML += `<p style="color: green;">✅ Sucesso! Total: ${count || data?.length || 0}</p>`;
+                    resultsDiv.innerHTML += `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+                }
+            } catch (e) {
+                resultsDiv.innerHTML += `<p style="color: red;">❌ Exceção: ${e.message}</p>`;
+            }
+        }
+        
+        async function runTests() {
+            await testTable('consultas');
+            await testTable('usuario_comprador');
+            await testTable('usuario_fornecedor');
+            await testTable('aparicoes');
+        }
+        
+        runTests();
+    </script>
+</body>
+</html>
+

@@ -1,0 +1,157 @@
+📄 PRD: Dashboard Administrativo - BuscaFornecedor
+Data: 14 de Janeiro de 2026 Autor: Especialista em Arquitetura de Software (Refine.dev + Supabase) Versão: 1.0
+
+1. Visão Geral do Projeto
+Desenvolvimento de um painel administrativo (Dashboard) "Read-Only" (apenas leitura) para a plataforma BuscaFornecedor. O objetivo é visualizar métricas de compradores e fornecedores, permitindo análises granulares através de tabelas interativas e gráficos de evolução.
+
+Stack Tecnológico:
+
+Framework Frontend: Refine.dev (React).
+
+UI Library: Ant Design (Recomendado para Refine por oferecer tabelas complexas, filtros e ordenação nativos) ou Material UI. Design System: Azul e Branco.
+
+Backend/Database: Supabase (PostgreSQL).
+
+Conectividade: Data Provider do Supabase para Refine.
+
+2. Acesso e Segurança (Crítico)
+⚠️ Diretriz Suprema: O sistema deve operar em modo estrito de Leitura (Read-Only).
+
+Desabilitar botões de criar, editar e deletar (canCreate, canEdit, canDelete devem ser falsos ou omitidos nos recursos).
+
+A conexão direta via string abaixo deve ser usada para introspecção do esquema e configuração inicial, mas recomenda-se o uso do supabase-js client com as credenciais públicas/anon para o frontend, configuradas com RLS (Row Level Security) se possível.
+
+Credenciais de Banco de Dados (Direct Connection):
+
+Plaintext
+
+postgresql://postgres.hccolkrnyrxcbxuuajwq:1d8vUnUlDXT7cmox@aws-0-sa-east-1.pooler.supabase.com:5432/postgres
+3. Estrutura de Dados (Data Schema)
+Baseado na análise preliminar das tabelas solicitadas, o sistema deve mapear os seguintes recursos no Refine:
+
+3.1. Tabelas Mapeadas
+usuario_comprador: Perfil dos compradores.
+
+Campos esperados: id, nome, email, data_cadastro, empresa.
+
+usuario_fornecedor: Perfil dos fornecedores.
+
+Campos esperados: id, nome_empresa, cnpj, categoria, data_cadastro.
+
+consultas: Logs de buscas realizadas.
+
+Campos esperados: id, id_comprador (FK), termo_busca, data_consulta.
+
+aparicoes: Resultados gerados pelas consultas.
+
+Campos esperados: id, id_consulta (FK), id_fornecedor (FK), score (nota de relevância/match), data_processamento.
+
+(Nota para o Desenvolvedor: Na Fase 1 de implementação, execute uma query SELECT * FROM tabela LIMIT 5 para confirmar os nomes exatos das colunas).
+
+4. Requisitos Funcionais e Dashboards
+O sistema deve ter uma navegação lateral clara dividida entre "Visão do Comprador" e "Visão do Fornecedor".
+
+4.1. Dashboard Comprador
+Objetivo: Analisar o engajamento dos compradores.
+
+KPIs (Big Numbers):
+
+Total de Compradores Cadastrados.
+
+Total Geral de Consultas Realizadas.
+
+Gráficos:
+
+Novos Compradores: Linha ou Barra (Eixo X: Tempo, Eixo Y: Qtd).
+
+Volume de Consultas: Linha ou Barra.
+
+Filtro Temporal: Botões para alternar a view entre: Diária, Semanal, Mensal.
+
+Tabela Mestre (Compradores):
+
+Listagem completa de usuario_comprador.
+
+Funcionalidades: Paginação, Filtro por coluna (ex: buscar por nome), Ordenação.
+
+Drill-down (Expansão): Ao clicar em uma linha de comprador, expandir (ou abrir modal/drawer) contendo uma sub-tabela com as últimas consultas realizadas por aquele usuário (tabela consultas filtrada pelo id_comprador).
+
+4.2. Dashboard Fornecedor
+Objetivo: Analisar a visibilidade dos fornecedores na plataforma.
+
+KPIs (Big Numbers):
+
+Total de Fornecedores Pesquisados (Distintos na tabela aparicoes).
+
+Tabela de Aparições Aglutinada:
+
+Esta tabela requer uma agregação de dados. Deve listar os Fornecedores e contar quantas vezes apareceram.
+
+Colunas Calculadas (Buckets de Score):
+
+Nome do Fornecedor.
+
+Total Aparições.
+
+Qtd Score 0-10.
+
+Qtd Score 10-25.
+
+Qtd Score 25-50.
+
+Qtd Score 50-70.
+
+Qtd Score 70+.
+
+Interatividade (Drill-down):
+
+Ao clicar na linha de um fornecedor, exibir a lista de Consultas que geraram aquelas aparições (Join entre aparicoes -> consultas). Isso permite ver "quem procurou o quê" para que este fornecedor aparecesse.
+
+5. Requisitos de UI/UX (Refine.dev)
+Tema: Azul (Primary Color) e Branco (Background). Aparência limpa, corporativa (SaaS).
+
+Responsividade: O layout deve se adaptar a desktops e tablets.
+
+Componente de Tabela:
+
+Utilizar <Table> do Ant Design integrado ao Refine.
+
+Habilitar sorter e filterDropdown em todas as colunas relevantes.
+
+Habilitar densidade de tabela (compact/middle) para visualização de muitos dados.
+
+Colunas redimensionáveis (se a biblioteca permitir nativamente) ou com largura fixa inteligente.
+
+6. Plano de Implementação (Passo a Passo para IA)
+Fase 1: Setup e Reconhecimento
+Inicializar projeto Refine com Vite e suporte a Supabase e Ant Design.
+
+Configurar cliente Supabase.
+
+Ação Crítica: Realizar fetch de 5 linhas de cada tabela (usuario_comprador, usuario_fornecedor, consultas, aparicoes) e exibir no console para mapear o esquema exato (tipagem TypeScript).
+
+Fase 2: Construção dos Recursos (Resources)
+Criar os recursos no Refine (buyers, suppliers, queries, appearances).
+
+Garantir que as rotas sejam apenas list e show (bloquear create/edit).
+
+Fase 3: Desenvolvimento Dashboard Comprador
+Implementar os Cards de métricas (KPIs) usando queries count.
+
+Implementar Gráficos usando recharts ou ant-design-charts.
+
+Criar a Tabela de Compradores com funcionalidade useTable e Table.Expandable para mostrar o histórico de consultas.
+
+Fase 4: Desenvolvimento Dashboard Fornecedor
+Implementar lógica de agregação para a "Tabela de Aparições".
+
+Nota Técnica: Se o volume de dados for alto, sugerir a criação de uma VIEW SQL no banco. Caso contrário, realizar o fetch da tabela aparicoes, fazer o groupBy e o cálculo dos buckets (0-10, 10-25...) no frontend (transformação de dados).
+
+Implementar o drill-down para ver as consultas originais.
+
+Fase 5: Refinamento Visual
+Aplicar a paleta de cores Azul/Branco.
+
+Revisar responsividade.
+
+Testar filtros e ordenações.
