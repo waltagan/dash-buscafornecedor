@@ -16,7 +16,6 @@ import { BrowserRouter, Outlet, Route, Routes } from "react-router-dom";
 import { ConfigProvider, App as AntdApp } from "antd";
 import { supabaseClient } from "./utils/supabaseClient";
 import "@refinedev/antd/dist/reset.css";
-import React from "react";
 
 // Importar páginas
 import { DashboardComprador } from "./pages/dashboard-comprador";

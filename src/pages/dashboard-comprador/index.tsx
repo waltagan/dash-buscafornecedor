@@ -1,5 +1,5 @@
 import { useList } from "@refinedev/core";
-import { Card, Row, Col, Statistic, Radio, Space, Spin, Table, Tag, Typography, Tooltip } from "antd";
+import { Card, Row, Col, Statistic, Radio, Space, Spin, Table, Typography, Tooltip } from "antd";
 import { UserOutlined, SearchOutlined } from "@ant-design/icons";
 import { Line, Column } from "@ant-design/charts";
 import { useState, useMemo } from "react";
@@ -256,17 +256,6 @@ export const DashboardComprador = () => {
     return map;
   }, [todosCompradores]);
 
-  // Criar mapa de aparições por consulta_id
-  const aparicoesPorConsulta = useMemo(() => {
-    const map = new Map<string, Aparicoes[]>();
-    aparicoesData?.data?.forEach((a) => {
-      if (!map.has(a.consulta_id)) {
-        map.set(a.consulta_id, []);
-      }
-      map.get(a.consulta_id)!.push(a);
-    });
-    return map;
-  }, [aparicoesData]);
 
   // Função para renderizar JSON de forma legível
   const renderJson = (value: unknown, maxLength: number = 100) => {
@@ -326,9 +315,6 @@ export const DashboardComprador = () => {
     });
   }, [ultimasConsultas, compradoresMap]);
 
-  const isLoading = isLoadingCompradores || isLoadingConsultas || 
-                    isLoadingCompradoresChart || isLoadingConsultasChart || 
-                    isLoadingFornecedoresChart;
 
   return (
     <div style={{ padding: "24px" }}>

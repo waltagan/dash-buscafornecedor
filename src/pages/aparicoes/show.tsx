@@ -42,18 +42,24 @@ export const AparicoesShow = () => {
           <TextField value={record?.comprador_id || "-"} />
         </Descriptions.Item>
         <Descriptions.Item label="Nota">
-          <NumberField 
-            value={record?.nota} 
-            valueIfEmpty="-"
-            options={{ style: "decimal" }}
-          />
+          {record?.nota != null ? (
+            <NumberField 
+              value={record.nota} 
+              options={{ style: "decimal" }}
+            />
+          ) : (
+            "-"
+          )}
         </Descriptions.Item>
         <Descriptions.Item label="Data">
-          <DateField 
-            value={record?.created_at} 
-            format="DD/MM/YYYY HH:mm:ss"
-            valueIfEmpty="-"
-          />
+          {record?.created_at ? (
+            <DateField 
+              value={record.created_at} 
+              format="DD/MM/YYYY HH:mm:ss"
+            />
+          ) : (
+            "-"
+          )}
         </Descriptions.Item>
       </Descriptions>
     </Card>

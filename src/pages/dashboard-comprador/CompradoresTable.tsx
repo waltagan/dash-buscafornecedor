@@ -23,7 +23,7 @@ export const CompradoresTable = () => {
   });
 
   // Buscar compradores paginados para uso normal
-  const { tableProps, error: tableError } = useTable<UsuarioComprador>({
+  const { tableProps } = useTable<UsuarioComprador>({
     resource: "usuario_comprador",
     meta: {
       select: "*",
@@ -281,8 +281,9 @@ export const CompradoresTable = () => {
       return tableProps.dataSource || [];
     }
 
-    const current = tableProps.pagination?.current || 1;
-    const pageSize = tableProps.pagination?.pageSize || 10;
+    const pagination = tableProps.pagination && typeof tableProps.pagination !== 'boolean' ? tableProps.pagination : null;
+    const current = pagination?.current || 1;
+    const pageSize = pagination?.pageSize || 10;
     const start = (current - 1) * pageSize;
     const end = start + pageSize;
 
@@ -346,8 +347,9 @@ export const CompradoresTable = () => {
       // Resetar para página 1 quando ordenar
       if (pagination && pagination.current !== 1) {
         // Atualizar paginação do Refine diretamente
-        if (tableProps.pagination?.onChange) {
-          tableProps.pagination.onChange(1, pagination.pageSize || 10);
+        const tablePagination = tableProps.pagination && typeof tableProps.pagination !== 'boolean' ? tableProps.pagination : null;
+        if (tablePagination?.onChange) {
+          tablePagination.onChange(1, pagination.pageSize || 10);
         }
       }
       // CRÍTICO: NÃO chamar tableProps.onChange quando ordenando por estatísticas
@@ -362,7 +364,7 @@ export const CompradoresTable = () => {
 
     // Chamar handler original do Refine para outras colunas e paginação
     if (tableProps.onChange) {
-      tableProps.onChange(pagination, filters, sorter);
+      tableProps.onChange(pagination, filters, sorter, { currentDataSource: [] });
     }
   };
 
@@ -373,23 +375,26 @@ export const CompradoresTable = () => {
         rowKey={(record) => record.id}
         expandable={{
           expandedRowKeys,
-          onExpandedRowsChange: setExpandedRowKeys,
+          onExpandedRowsChange: (keys) => setExpandedRowKeys(Array.from(keys)),
           expandedRowRender: (record) => (
             <ConsultasSubTable compradorId={record.id} />
           ),
           rowExpandable: () => true,
         }}
-        pagination={{
-          current: tableProps.pagination?.current || 1,
-          pageSize: tableProps.pagination?.pageSize || 10,
-          total: ordenandoPorEstatisticas 
-            ? (todosCompradores?.total || compradoresOrdenados.length)
-            : (tableProps.pagination?.total || 0),
-          showSizeChanger: true,
-          showTotal: (total, range) => `${range[0]}-${range[1]} de ${total} compradores`,
-          onChange: tableProps.pagination?.onChange,
-          onShowSizeChange: tableProps.pagination?.onShowSizeChange,
-        }}
+        pagination={(() => {
+          const tablePagination = tableProps.pagination && typeof tableProps.pagination !== 'boolean' ? tableProps.pagination : null;
+          return {
+            current: tablePagination?.current || 1,
+            pageSize: tablePagination?.pageSize || 10,
+            total: ordenandoPorEstatisticas 
+              ? (todosCompradores?.total || compradoresOrdenados.length)
+              : (tablePagination?.total || 0),
+            showSizeChanger: true,
+            showTotal: (total, range) => `${range[0]}-${range[1]} de ${total} compradores`,
+            onChange: tablePagination?.onChange,
+            onShowSizeChange: tablePagination?.onShowSizeChange,
+          };
+        })()}
         onChange={handleTableChange}
       >
         <Table.Column

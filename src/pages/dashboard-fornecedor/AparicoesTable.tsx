@@ -216,7 +216,7 @@ export const AparicoesTable = ({ aparicoes, fornecedores, isLoading }: Aparicoes
       loading={isLoading}
       expandable={{
         expandedRowKeys,
-        onExpandedRowsChange: setExpandedRowKeys,
+        onExpandedRowsChange: (keys) => setExpandedRowKeys(Array.from(keys)),
         expandedRowRender: (record) => (
           <ConsultasSubTable
             cnpjBasico={record.cnpjBasico}

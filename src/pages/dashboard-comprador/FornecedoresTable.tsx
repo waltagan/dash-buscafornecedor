@@ -47,10 +47,10 @@ const renderJson = (value: unknown, maxLength: number = 80) => {
 };
 
 // Interface para a tabela de empresas do CNPJ
-interface EmpresaCNPJ {
+type EmpresaCNPJ = {
   cnpj_basico: string;
   razao_social?: string | null;
-}
+};
 
 export const FornecedoresTable = () => {
   const [expandedRowKeys, setExpandedRowKeys] = useState<React.Key[]>([]);
@@ -419,7 +419,7 @@ export const FornecedoresTable = () => {
       loading={isLoading || isLoadingNomes}
       expandable={{
         expandedRowKeys,
-        onExpandedRowsChange: setExpandedRowKeys,
+        onExpandedRowsChange: (keys) => setExpandedRowKeys(Array.from(keys)),
         expandedRowRender: (record) => (
           <ConsultasSubTable 
             cnpjBasico={record.cnpjBasico} 

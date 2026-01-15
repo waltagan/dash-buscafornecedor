@@ -50,18 +50,24 @@ export const FornecedoresShow = () => {
           <BooleanField value={record?.cadastro_incompleto} />
         </Descriptions.Item>
         <Descriptions.Item label="Data Limite do Plano">
-          <DateField 
-            value={record?.data_limite_plano} 
-            format="DD/MM/YYYY"
-            valueIfEmpty="-"
-          />
+          {record?.data_limite_plano ? (
+            <DateField 
+              value={record.data_limite_plano} 
+              format="DD/MM/YYYY"
+            />
+          ) : (
+            "-"
+          )}
         </Descriptions.Item>
         <Descriptions.Item label="Fim da Assinatura">
-          <DateField 
-            value={record?.subscription_end} 
-            format="DD/MM/YYYY"
-            valueIfEmpty="-"
-          />
+          {record?.subscription_end ? (
+            <DateField 
+              value={record.subscription_end} 
+              format="DD/MM/YYYY"
+            />
+          ) : (
+            "-"
+          )}
         </Descriptions.Item>
         <Descriptions.Item label="Data de Cadastro">
           <DateField value={record?.created_at} format="DD/MM/YYYY HH:mm" />
