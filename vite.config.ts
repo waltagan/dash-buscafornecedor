@@ -11,6 +11,11 @@ export default defineConfig({
   preview: {
     host: "0.0.0.0",
     port: parseInt(process.env.PORT || "5173"),
+    allowedHosts: [
+      "dash-buscafornecedor-buscafornecedor.up.railway.app",
+      ".railway.app",
+      ".up.railway.app",
+    ],
   },
 });
 
