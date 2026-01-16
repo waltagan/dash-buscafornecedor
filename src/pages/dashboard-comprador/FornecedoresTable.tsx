@@ -13,6 +13,7 @@ interface FornecedorAgregado {
   cnpjOrdem: string;
   cnpjDv: string;
   nomeFornecedor: string; // Razão social ou nome fantasia
+  siteFornecedor: string; // Site da empresa
   cnpjFormatado: string; // CNPJ formatado
   totalAparicoes: number;
   score0_10: number;
@@ -49,7 +50,9 @@ const renderJson = (value: unknown, maxLength: number = 80) => {
 export const FornecedoresTable = () => {
   const [expandedRowKeys, setExpandedRowKeys] = useState<React.Key[]>([]);
   const [nomesFornecedores, setNomesFornecedores] = useState<Map<string, string>>(new Map());
+  const [sitesFornecedores, setSitesFornecedores] = useState<Map<string, string>>(new Map());
   const [isLoadingNomes, setIsLoadingNomes] = useState(false);
+  const [isLoadingSites, setIsLoadingSites] = useState(false);
 
   // Função auxiliar para criar cliente Supabase para cnpj_db
   const createCnpjDbClient = () => {
@@ -218,6 +221,7 @@ export const FornecedoresTable = () => {
         cnpjOrdem: dados.cnpjOrdem,
         cnpjDv: dados.cnpjDv,
         nomeFornecedor: fornecedor?.nome || "-",
+        siteFornecedor: "-", // Será preenchido depois pelo enriquecimento
         cnpjFormatado,
         totalAparicoes: dados.aparicoes.length,
         score0_10, score11_25, score26_50, score51_69, score70_90, score90_100,
@@ -287,13 +291,82 @@ export const FornecedoresTable = () => {
     fetchTodosNomes();
   }, [fornecedoresAgregados]);
 
-  // Enriquecer fornecedores com nomes (apenas para visualização)
+  // Buscar TODOS os sites de uma vez (da tabela estabelecimento)
+  useEffect(() => {
+    const fetchTodosSites = async () => {
+      if (!fornecedoresAgregados || fornecedoresAgregados.length === 0) return;
+      if (sitesFornecedores.size > 0) return; // Já buscamos
+
+      // Precisamos dos CNPJs completos (basico + ordem + dv) para buscar na tabela estabelecimento
+      const todosCnpjsCompletos = fornecedoresAgregados.map(f => ({
+        cnpjBasico: f.cnpjBasico,
+        cnpjOrdem: f.cnpjOrdem,
+        cnpjDv: f.cnpjDv,
+        cnpjKey: f.cnpjKey,
+      }));
+      
+      console.log(`🔍 Buscando sites para TODOS os ${todosCnpjsCompletos.length} fornecedores...`);
+      setIsLoadingSites(true);
+
+      try {
+        const cnpjDbClient = createCnpjDbClient();
+        if (!cnpjDbClient) {
+          console.error("❌ Não foi possível criar cliente para cnpj_db");
+          return;
+        }
+
+        // Buscar todos de uma vez (Supabase suporta até 1000 por query, vamos fazer em lotes)
+        const batchSize = 500;
+        const allSites = new Map<string, string>();
+
+        for (let i = 0; i < todosCnpjsCompletos.length; i += batchSize) {
+          const batch = todosCnpjsCompletos.slice(i, i + batchSize);
+          console.log(`  📦 Buscando sites lote ${Math.floor(i / batchSize) + 1}/${Math.ceil(todosCnpjsCompletos.length / batchSize)} (${batch.length} CNPJs)`);
+
+          // Buscar por cnpj_basico, cnpj_ordem e cnpj_dv na tabela estabelecimento
+          const cnpjsBasicos = [...new Set(batch.map(c => c.cnpjBasico))];
+          
+          const { data, error } = await cnpjDbClient
+            .from("estabelecimento")
+            .select("cnpj_basico, cnpj_ordem, cnpj_dv, site")
+            .in("cnpj_basico", cnpjsBasicos);
+
+          if (error) {
+            console.error(`  ❌ Erro no lote ${Math.floor(i / batchSize) + 1}:`, error);
+            continue;
+          }
+
+          if (data) {
+            data.forEach(est => {
+              if (est.site) {
+                const cnpjKey = `${String(est.cnpj_basico).trim()}-${est.cnpj_ordem}-${est.cnpj_dv}`;
+                allSites.set(cnpjKey, est.site);
+              }
+            });
+            console.log(`  ✅ ${data.length} estabelecimentos encontrados neste lote`);
+          }
+        }
+
+        console.log(`✅ Total de sites carregados: ${allSites.size} de ${todosCnpjsCompletos.length}`);
+        setSitesFornecedores(allSites);
+      } catch (err) {
+        console.error("❌ Erro ao buscar sites:", err);
+      } finally {
+        setIsLoadingSites(false);
+      }
+    };
+
+    fetchTodosSites();
+  }, [fornecedoresAgregados]);
+
+  // Enriquecer fornecedores com nomes e sites (apenas para visualização)
   const fornecedoresComNomes = useMemo(() => {
     return fornecedoresAgregados.map(f => ({
       ...f,
       nomeFornecedor: nomesFornecedores.get(f.cnpjBasico) || f.nomeFornecedor,
+      siteFornecedor: sitesFornecedores.get(f.cnpjKey) || f.siteFornecedor,
     }));
-  }, [fornecedoresAgregados, nomesFornecedores]);
+  }, [fornecedoresAgregados, nomesFornecedores, sitesFornecedores]);
 
   // Função para renderizar sub-tabela de consultas
   const ConsultasSubTable = ({ cnpjBasico, cnpjOrdem, cnpjDv }: { 
@@ -307,6 +380,15 @@ export const FornecedoresTable = () => {
              a.cnpj_ordem === cnpjOrdem && 
              a.cnpj_dv === cnpjDv
     ) || [];
+
+    // Criar mapa de consulta_id -> nota (para buscar a nota do fornecedor em cada consulta)
+    const notasPorConsulta = useMemo(() => {
+      const map = new Map<string, number | null>();
+      aparicoesFornecedor.forEach((aparicao) => {
+        map.set(aparicao.consulta_id, aparicao.nota);
+      });
+      return map;
+    }, [aparicoesFornecedor]);
 
     // Buscar IDs de consultas relacionadas
     const consultaIds = [...new Set(aparicoesFornecedor.map((a) => a.consulta_id))];
@@ -331,6 +413,17 @@ export const FornecedoresTable = () => {
       return <div style={{ padding: "16px", color: "#999" }}>Nenhuma consulta encontrada</div>;
     }
 
+    // Função para definir cor da tag baseada na nota
+    const getNotaColor = (nota: number | null | undefined): string => {
+      if (nota === null || nota === undefined) return "default";
+      if (nota <= 10) return "red";
+      if (nota <= 25) return "orange";
+      if (nota <= 50) return "gold";
+      if (nota <= 69) return "cyan";
+      if (nota <= 90) return "blue";
+      return "green";
+    };
+
     return (
       <Table
         dataSource={consultasFiltradas}
@@ -339,6 +432,18 @@ export const FornecedoresTable = () => {
         size="small"
         scroll={{ x: "max-content" }}
         columns={[
+          {
+            title: "Nota",
+            key: "nota",
+            width: 80,
+            render: (_, record: Consultas) => {
+              const nota = notasPorConsulta.get(record.id);
+              if (nota === null || nota === undefined) {
+                return <Tag color="default">-</Tag>;
+              }
+              return <Tag color={getNotaColor(nota)}>{nota}</Tag>;
+            },
+          },
           {
             title: "Comprador",
             dataIndex: "comprador",
@@ -410,7 +515,7 @@ export const FornecedoresTable = () => {
     <Table
       dataSource={fornecedoresComNomes}
       rowKey="cnpjKey"
-      loading={isLoading || isLoadingNomes}
+      loading={isLoading || isLoadingNomes || isLoadingSites}
       expandable={{
         expandedRowKeys,
         onExpandedRowsChange: (keys) => setExpandedRowKeys(Array.from(keys)),
@@ -440,6 +545,31 @@ export const FornecedoresTable = () => {
         dataIndex="cnpjFormatado"
         sorter={(a, b) => a.cnpjFormatado.localeCompare(b.cnpjFormatado)}
         render={(value) => <Text code>{value}</Text>}
+      />
+      <Table.Column
+        title="Site"
+        dataIndex="siteFornecedor"
+        width={200}
+        sorter={(a, b) => (a.siteFornecedor || "").localeCompare(b.siteFornecedor || "")}
+        render={(value: string) => {
+          if (!value || value === "-") return <Text type="secondary">-</Text>;
+          // Formatar URL se não tiver protocolo
+          const url = value.startsWith("http") ? value : `https://${value}`;
+          return (
+            <a 
+              href={url} 
+              target="_blank" 
+              rel="noopener noreferrer"
+              style={{ 
+                color: "#1890ff",
+                textDecoration: "none",
+                wordBreak: "break-all"
+              }}
+            >
+              {value}
+            </a>
+          );
+        }}
       />
       <Table.Column
         title="Cadastrado"
