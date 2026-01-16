@@ -19,6 +19,14 @@ interface FornecedorNotaAlta {
   cnpjDv: string;
   nota: number;
   nomeFornecedor: string;
+  site: string;
+  totalAparicoes: number;
+  score0_10: number;
+  score11_25: number;
+  score26_50: number;
+  score51_69: number;
+  score70_90: number;
+  score90_100: number;
 }
 
 export const DashboardComprador = () => {
@@ -186,13 +194,15 @@ export const DashboardComprador = () => {
         return;
       }
 
-      // Buscar nomes dos fornecedores no cnpj_db
+      // Buscar nomes e sites dos fornecedores no cnpj_db
       const cnpjDbClient = createCnpjDbClient();
       const cnpjsBasicos = [...new Set(aparicoesFiltradas.map(a => a.cnpj_basico))];
 
       let nomesMap = new Map<string, string>();
+      let sitesMap = new Map<string, string>();
 
       if (cnpjDbClient) {
+        // Buscar nomes das empresas
         const { data: empresas } = await cnpjDbClient
           .from("empresas")
           .select("cnpj_basico, razao_social")
@@ -203,16 +213,85 @@ export const DashboardComprador = () => {
             nomesMap.set(String(emp.cnpj_basico).trim(), emp.razao_social);
           });
         }
+
+        // Buscar sites dos estabelecimentos
+        const { data: estabelecimentos } = await cnpjDbClient
+          .from("estabelecimento")
+          .select("cnpj_basico, cnpj_ordem, cnpj_dv, site")
+          .in("cnpj_basico", cnpjsBasicos);
+
+        if (estabelecimentos) {
+          estabelecimentos.forEach((est: { cnpj_basico: string; cnpj_ordem: string; cnpj_dv: string; site: string }) => {
+            if (est.site) {
+              const cnpjKey = `${String(est.cnpj_basico).trim()}-${est.cnpj_ordem}-${est.cnpj_dv}`;
+              sitesMap.set(cnpjKey, est.site);
+            }
+          });
+        }
       }
 
+      // Calcular estatísticas de TODAS as aparições de cada fornecedor
+      const statsMap = new Map<string, {
+        totalAparicoes: number;
+        score0_10: number;
+        score11_25: number;
+        score26_50: number;
+        score51_69: number;
+        score70_90: number;
+        score90_100: number;
+      }>();
+
+      // Processar TODAS as aparições para calcular estatísticas
+      aparicoesData?.data?.forEach((aparicao) => {
+        const cnpjKey = `${aparicao.cnpj_basico}-${aparicao.cnpj_ordem}-${aparicao.cnpj_dv}`;
+        
+        if (!statsMap.has(cnpjKey)) {
+          statsMap.set(cnpjKey, {
+            totalAparicoes: 0,
+            score0_10: 0,
+            score11_25: 0,
+            score26_50: 0,
+            score51_69: 0,
+            score70_90: 0,
+            score90_100: 0,
+          });
+        }
+
+        const stats = statsMap.get(cnpjKey)!;
+        stats.totalAparicoes++;
+
+        const nota = aparicao.nota ?? 0;
+        if (nota <= 10) stats.score0_10++;
+        else if (nota <= 25) stats.score11_25++;
+        else if (nota <= 50) stats.score26_50++;
+        else if (nota <= 69) stats.score51_69++;
+        else if (nota <= 90) stats.score70_90++;
+        else stats.score90_100++;
+      });
+
       // Montar lista de fornecedores
-      const fornecedores: FornecedorNotaAlta[] = aparicoesFiltradas.map((a) => ({
-        cnpjBasico: a.cnpj_basico,
-        cnpjOrdem: a.cnpj_ordem,
-        cnpjDv: a.cnpj_dv,
-        nota: a.nota ?? 0,
-        nomeFornecedor: nomesMap.get(String(a.cnpj_basico).trim()) || "-",
-      }));
+      const fornecedores: FornecedorNotaAlta[] = aparicoesFiltradas.map((a) => {
+        const cnpjKey = `${a.cnpj_basico}-${a.cnpj_ordem}-${a.cnpj_dv}`;
+        const stats = statsMap.get(cnpjKey) || {
+          totalAparicoes: 0,
+          score0_10: 0,
+          score11_25: 0,
+          score26_50: 0,
+          score51_69: 0,
+          score70_90: 0,
+          score90_100: 0,
+        };
+
+        return {
+          cnpjBasico: a.cnpj_basico,
+          cnpjOrdem: a.cnpj_ordem,
+          cnpjDv: a.cnpj_dv,
+          nota: a.nota ?? 0,
+          nomeFornecedor: nomesMap.get(String(a.cnpj_basico).trim()) || "-",
+          site: sitesMap.get(cnpjKey) || "-",
+          ...stats,
+        };
+      });
 
       // Ordenar por nota (maior primeiro)
       fornecedores.sort((a, b) => b.nota - a.nota);
@@ -638,7 +717,7 @@ export const DashboardComprador = () => {
 
       {/* Modal de Fornecedores com Nota > 60 */}
       <Modal
-        title={`Fornecedores com Nota > 60`}
+        title={`Fornecedores com Nota ≥ 60`}
         open={modalFornecedoresVisible}
         onCancel={() => setModalFornecedoresVisible(false)}
         footer={[
@@ -646,7 +725,7 @@ export const DashboardComprador = () => {
             Fechar
           </Button>,
         ]}
-        width={800}
+        width={1400}
       >
         {loadingFornecedores ? (
           <div style={{ textAlign: "center", padding: "40px" }}>
@@ -655,7 +734,7 @@ export const DashboardComprador = () => {
           </div>
         ) : fornecedoresNotaAlta.length === 0 ? (
           <div style={{ textAlign: "center", padding: "40px", color: "#999" }}>
-            Nenhum fornecedor com nota maior que 60 nesta consulta.
+            Nenhum fornecedor com nota maior ou igual a 60 nesta consulta.
           </div>
         ) : (
           <Table
@@ -663,20 +742,42 @@ export const DashboardComprador = () => {
             rowKey={(record) => `${record.cnpjBasico}-${record.cnpjOrdem}-${record.cnpjDv}`}
             pagination={false}
             size="small"
+            scroll={{ x: "max-content" }}
           >
             <Table.Column
               title="Nome do Fornecedor"
               dataIndex="nomeFornecedor"
+              width={200}
               render={(value) => <Text strong>{value || "-"}</Text>}
             />
             <Table.Column
               title="CNPJ"
+              width={180}
               render={(_, record: FornecedorNotaAlta) => (
                 <Text code>{`${record.cnpjBasico}/${record.cnpjOrdem}-${record.cnpjDv}`}</Text>
               )}
             />
             <Table.Column
-              title="Nota"
+              title="Site"
+              dataIndex="site"
+              width={180}
+              render={(value: string) => {
+                if (!value || value === "-") return <Text type="secondary">-</Text>;
+                const url = value.startsWith("http") ? value : `https://${value}`;
+                return (
+                  <a 
+                    href={url} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    style={{ color: "#1890ff", wordBreak: "break-all" }}
+                  >
+                    {value}
+                  </a>
+                );
+              }}
+            />
+            <Table.Column
+              title="Nota Consulta"
               dataIndex="nota"
               width={100}
               render={(value: number) => {
@@ -685,6 +786,48 @@ export const DashboardComprador = () => {
                 else if (value <= 90) color = "blue";
                 return <Tag color={color}>{value}</Tag>;
               }}
+            />
+            <Table.Column
+              title="Total"
+              dataIndex="totalAparicoes"
+              width={70}
+              render={(value) => <Tag color="purple">{value}</Tag>}
+            />
+            <Table.Column
+              title="0-10"
+              dataIndex="score0_10"
+              width={60}
+              render={(value) => <Tag color="red">{value}</Tag>}
+            />
+            <Table.Column
+              title="11-25"
+              dataIndex="score11_25"
+              width={60}
+              render={(value) => <Tag color="orange">{value}</Tag>}
+            />
+            <Table.Column
+              title="26-50"
+              dataIndex="score26_50"
+              width={60}
+              render={(value) => <Tag color="gold">{value}</Tag>}
+            />
+            <Table.Column
+              title="51-69"
+              dataIndex="score51_69"
+              width={60}
+              render={(value) => <Tag color="cyan">{value}</Tag>}
+            />
+            <Table.Column
+              title="70-90"
+              dataIndex="score70_90"
+              width={60}
+              render={(value) => <Tag color="blue">{value}</Tag>}
+            />
+            <Table.Column
+              title="90-100"
+              dataIndex="score90_100"
+              width={70}
+              render={(value) => <Tag color="green">{value}</Tag>}
             />
           </Table>
         )}
