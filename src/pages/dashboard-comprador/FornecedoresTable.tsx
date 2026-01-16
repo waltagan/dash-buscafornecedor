@@ -385,7 +385,7 @@ export const FornecedoresTable = () => {
     const notasPorConsulta = useMemo(() => {
       const map = new Map<string, number | null>();
       aparicoesFornecedor.forEach((aparicao) => {
-        map.set(aparicao.consulta_id, aparicao.nota);
+        map.set(aparicao.consulta_id, aparicao.nota ?? null);
       });
       return map;
     }, [aparicoesFornecedor]);
