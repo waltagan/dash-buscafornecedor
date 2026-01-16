@@ -1,8 +1,8 @@
+import React, { useState, useMemo } from "react";
 import { useList } from "@refinedev/core";
 import { Card, Row, Col, Statistic, Radio, Space, Spin, Table, Typography, Tooltip, Button, Modal, Tag } from "antd";
 import { UserOutlined, SearchOutlined, EyeOutlined } from "@ant-design/icons";
 import { Line, Column } from "@ant-design/charts";
-import { useState, useMemo } from "react";
 import { CompradoresTable } from "./CompradoresTable";
 import { FornecedoresTable } from "./FornecedoresTable";
 import { UsuarioComprador, Consultas, UsuarioFornecedor, Aparicoes } from "../../types/database";
@@ -34,6 +34,7 @@ export const DashboardComprador = () => {
   const [modalFornecedoresVisible, setModalFornecedoresVisible] = useState(false);
   const [fornecedoresNotaAlta, setFornecedoresNotaAlta] = useState<FornecedorNotaAlta[]>([]);
   const [loadingFornecedores, setLoadingFornecedores] = useState(false);
+  const [expandedModalRowKeys, setExpandedModalRowKeys] = useState<React.Key[]>([]);
 
   // Função auxiliar para criar cliente Supabase para cnpj_db
   const createCnpjDbClient = () => {
@@ -743,6 +744,109 @@ export const DashboardComprador = () => {
             pagination={false}
             size="small"
             scroll={{ x: "max-content" }}
+            expandable={{
+              expandedRowKeys: expandedModalRowKeys,
+              onExpandedRowsChange: (keys) => setExpandedModalRowKeys(Array.from(keys)),
+              expandedRowRender: (record: FornecedorNotaAlta) => {
+                // Buscar aparições deste fornecedor
+                const aparicoesFornecedor = aparicoesData?.data?.filter(
+                  (a) => a.cnpj_basico === record.cnpjBasico && 
+                         a.cnpj_ordem === record.cnpjOrdem && 
+                         a.cnpj_dv === record.cnpjDv
+                ) || [];
+
+                // Criar mapa de consulta_id -> nota
+                const notasPorConsulta = new Map<string, number | null>();
+                aparicoesFornecedor.forEach((aparicao) => {
+                  notasPorConsulta.set(aparicao.consulta_id, aparicao.nota ?? null);
+                });
+
+                // Buscar IDs de consultas relacionadas
+                const consultaIds = [...new Set(aparicoesFornecedor.map((a) => a.consulta_id))];
+                
+                // Filtrar consultas
+                const consultasFiltradas = consultasAll?.data
+                  ?.filter((consulta) => consultaIds.includes(consulta.id))
+                  .sort((a, b) => {
+                    const dateA = new Date(a.created_at).getTime();
+                    const dateB = new Date(b.created_at).getTime();
+                    return dateB - dateA;
+                  }) || [];
+
+                if (consultasFiltradas.length === 0) {
+                  return <div style={{ padding: "16px", color: "#999" }}>Nenhuma consulta encontrada</div>;
+                }
+
+                // Função para definir cor da tag baseada na nota
+                const getNotaColor = (nota: number | null | undefined): string => {
+                  if (nota === null || nota === undefined) return "default";
+                  if (nota <= 10) return "red";
+                  if (nota <= 25) return "orange";
+                  if (nota <= 50) return "gold";
+                  if (nota <= 69) return "cyan";
+                  if (nota <= 90) return "blue";
+                  return "green";
+                };
+
+                return (
+                  <Table
+                    dataSource={consultasFiltradas}
+                    rowKey="id"
+                    pagination={false}
+                    size="small"
+                    scroll={{ x: "max-content" }}
+                    columns={[
+                      {
+                        title: "Nota",
+                        key: "nota",
+                        width: 80,
+                        render: (_: unknown, consulta: Consultas) => {
+                          const nota = notasPorConsulta.get(consulta.id);
+                          if (nota === null || nota === undefined) {
+                            return <Tag color="default">-</Tag>;
+                          }
+                          return <Tag color={getNotaColor(nota)}>{nota}</Tag>;
+                        },
+                      },
+                      {
+                        title: "Comprador",
+                        dataIndex: "comprador",
+                        width: 200,
+                        render: (compradorId: string) => {
+                          if (!compradorId) return "-";
+                          const comprador = compradoresMap.get(compradorId);
+                          return comprador?.nome || compradorId.substring(0, 8) + "...";
+                        },
+                      },
+                      {
+                        title: "Empresa",
+                        dataIndex: "comprador",
+                        width: 200,
+                        render: (compradorId: string) => {
+                          if (!compradorId) return "-";
+                          const comprador = compradoresMap.get(compradorId);
+                          return comprador?.empresa_nome || "-";
+                        },
+                      },
+                      {
+                        title: "Parâmetros",
+                        dataIndex: "parametros",
+                        width: 300,
+                        render: (value: unknown) => renderJson(value, 100),
+                      },
+                      {
+                        title: "Data",
+                        dataIndex: "created_at",
+                        width: 150,
+                        render: (value: string) =>
+                          value ? new Date(value).toLocaleString("pt-BR") : "-",
+                      },
+                    ]}
+                  />
+                );
+              },
+              rowExpandable: () => true,
+            }}
           >
             <Table.Column
               title="Nome do Fornecedor"
