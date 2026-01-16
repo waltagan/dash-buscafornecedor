@@ -1,18 +1,66 @@
 import { useList } from "@refinedev/core";
-import { Card, Row, Col, Statistic, Radio, Space, Spin, Table, Typography, Tooltip } from "antd";
-import { UserOutlined, SearchOutlined } from "@ant-design/icons";
+import { Card, Row, Col, Statistic, Radio, Space, Spin, Table, Typography, Tooltip, Button, Modal, Tag } from "antd";
+import { UserOutlined, SearchOutlined, EyeOutlined } from "@ant-design/icons";
 import { Line, Column } from "@ant-design/charts";
 import { useState, useMemo } from "react";
 import { CompradoresTable } from "./CompradoresTable";
 import { FornecedoresTable } from "./FornecedoresTable";
 import { UsuarioComprador, Consultas, UsuarioFornecedor, Aparicoes } from "../../types/database";
+import { createClient } from "@supabase/supabase-js";
 
 const { Text } = Typography;
 
 type TimeFilter = "daily" | "weekly" | "monthly";
 
+// Interface para fornecedores com nota alta
+interface FornecedorNotaAlta {
+  cnpjBasico: string;
+  cnpjOrdem: string;
+  cnpjDv: string;
+  nota: number;
+  nomeFornecedor: string;
+}
+
 export const DashboardComprador = () => {
   const [timeFilter, setTimeFilter] = useState<TimeFilter>("monthly");
+  const [modalFornecedoresVisible, setModalFornecedoresVisible] = useState(false);
+  const [fornecedoresNotaAlta, setFornecedoresNotaAlta] = useState<FornecedorNotaAlta[]>([]);
+  const [loadingFornecedores, setLoadingFornecedores] = useState(false);
+
+  // Função auxiliar para criar cliente Supabase para cnpj_db
+  const createCnpjDbClient = () => {
+    const connectionString = import.meta.env.VITE_SUPABASE_CONNECTION_STRING || import.meta.env.SUPABASE_CONNECTION_STRING || "";
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || "";
+    const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
+    const supabaseServiceRole = import.meta.env.VITE_SUPABASE_SERVICE_ROLE || import.meta.env.VITE_SERVICE_ROLE || "";
+
+    let finalSupabaseUrl = supabaseUrl;
+    let finalSupabaseAnonKey = supabaseAnonKey || supabaseServiceRole;
+
+    if (connectionString && !supabaseUrl) {
+      try {
+        const url = new URL(connectionString.replace(/^postgresql:/, "postgres:"));
+        const username = url.username;
+        if (username.startsWith("postgres.")) {
+          const projectRef = username.replace("postgres.", "");
+          finalSupabaseUrl = `https://${projectRef}.supabase.co`;
+        }
+      } catch (e) {
+        console.error("Erro ao parsear connection string:", e);
+      }
+    }
+
+    if (!finalSupabaseUrl || !finalSupabaseAnonKey) {
+      console.error("❌ Variáveis de ambiente não configuradas");
+      return null;
+    }
+
+    return createClient(finalSupabaseUrl, finalSupabaseAnonKey, {
+      db: {
+        schema: "cnpj_db",
+      },
+    });
+  };
 
   // Buscar total de compradores
   const { data: compradoresData, isLoading: isLoadingCompradores, error: compradoresError } = useList<UsuarioComprador>({
@@ -58,7 +106,8 @@ export const DashboardComprador = () => {
   const { data: consultasAll, isLoading: isLoadingConsultasChart } = useList<Consultas>({
     resource: "consultas",
     pagination: {
-      mode: "off",
+      pageSize: 100000, // Garantir que todas as consultas sejam carregadas
+      mode: "server",
     },
   });
 
@@ -70,11 +119,11 @@ export const DashboardComprador = () => {
     },
   });
 
-  // Buscar últimas 5 consultas
+  // Buscar últimas 10 consultas
   const { data: ultimasConsultas, isLoading: isLoadingUltimasConsultas } = useList<Consultas>({
     resource: "consultas",
     pagination: {
-      pageSize: 5,
+      pageSize: 10,
       current: 1,
     },
     sorters: [
@@ -85,13 +134,97 @@ export const DashboardComprador = () => {
     ],
   });
 
-  // Buscar aparições para mostrar fornecedores encontrados
-  const { isLoading: isLoadingAparicoes } = useList<Aparicoes>({
+  // Buscar TODAS as aparições (sem limite) - ordenando por data mais recente
+  const { data: aparicoesData, isLoading: isLoadingAparicoes } = useList<Aparicoes>({
     resource: "aparicoes",
     pagination: {
-      mode: "off",
+      pageSize: 100000, // Garantir que todas as aparições sejam carregadas
+      mode: "server",
     },
+    sorters: [
+      {
+        field: "created_at",
+        order: "desc",
+      },
+    ],
   });
+
+  // Log para debug: verificar se todas as aparições estão sendo carregadas
+  console.log("📦 Aparições carregadas:", aparicoesData?.data?.length || 0, "de", aparicoesData?.total || 0);
+
+  // Função para buscar fornecedores com nota > 60 para uma consulta
+  const handleVerFornecedoresNotaAlta = async (consultaId: string) => {
+    setLoadingFornecedores(true);
+    setModalFornecedoresVisible(true);
+
+    console.log("🔍 Buscando fornecedores com nota >= 60 para consulta:", consultaId);
+    console.log("📦 Total de aparições carregadas:", aparicoesData?.data?.length || 0);
+    
+    // Debug: mostrar exemplos de consulta_id na tabela aparições
+    const exemploConsultaIds = aparicoesData?.data?.slice(0, 5).map(a => a.consulta_id) || [];
+    console.log("📋 Exemplos de consulta_id nas aparições:", exemploConsultaIds);
+    console.log("🔑 ID da consulta selecionada:", consultaId);
+
+    try {
+      // Debug: mostrar algumas aparições dessa consulta
+      const aparicoesDestaConsulta = aparicoesData?.data.filter(
+        (a) => a.consulta_id === consultaId
+      ) || [];
+      console.log("📊 Aparições desta consulta:", aparicoesDestaConsulta.length);
+      console.log("📊 Notas das aparições:", aparicoesDestaConsulta.map(a => ({ nota: a.nota, cnpj: a.cnpj_basico })));
+
+      // Filtrar aparições dessa consulta com nota >= 60 (corrigido para >= ao invés de >)
+      const aparicoesFiltradas = aparicoesData?.data.filter(
+        (a) => a.consulta_id === consultaId && (a.nota ?? 0) >= 60
+      ) || [];
+
+      console.log("✅ Aparições com nota >= 60:", aparicoesFiltradas.length);
+
+      if (aparicoesFiltradas.length === 0) {
+        setFornecedoresNotaAlta([]);
+        setLoadingFornecedores(false);
+        return;
+      }
+
+      // Buscar nomes dos fornecedores no cnpj_db
+      const cnpjDbClient = createCnpjDbClient();
+      const cnpjsBasicos = [...new Set(aparicoesFiltradas.map(a => a.cnpj_basico))];
+
+      let nomesMap = new Map<string, string>();
+
+      if (cnpjDbClient) {
+        const { data: empresas } = await cnpjDbClient
+          .from("empresas")
+          .select("cnpj_basico, razao_social")
+          .in("cnpj_basico", cnpjsBasicos);
+
+        if (empresas) {
+          empresas.forEach((emp: { cnpj_basico: string; razao_social: string }) => {
+            nomesMap.set(String(emp.cnpj_basico).trim(), emp.razao_social);
+          });
+        }
+      }
+
+      // Montar lista de fornecedores
+      const fornecedores: FornecedorNotaAlta[] = aparicoesFiltradas.map((a) => ({
+        cnpjBasico: a.cnpj_basico,
+        cnpjOrdem: a.cnpj_ordem,
+        cnpjDv: a.cnpj_dv,
+        nota: a.nota ?? 0,
+        nomeFornecedor: nomesMap.get(String(a.cnpj_basico).trim()) || "-",
+      }));
+
+      // Ordenar por nota (maior primeiro)
+      fornecedores.sort((a, b) => b.nota - a.nota);
+
+      setFornecedoresNotaAlta(fornecedores);
+    } catch (err) {
+      console.error("Erro ao buscar fornecedores:", err);
+      setFornecedoresNotaAlta([]);
+    } finally {
+      setLoadingFornecedores(false);
+    }
+  };
 
   // Buscar todos compradores para lookup de nomes
   const { data: todosCompradores } = useList<UsuarioComprador>({
@@ -297,12 +430,30 @@ export const DashboardComprador = () => {
     }
   };
 
-  // Processar dados das últimas consultas
+  // Processar dados das últimas 5 consultas (independente de ter nota alta ou não)
   const consultasProcessadas = useMemo(() => {
     if (!ultimasConsultas?.data) return [];
 
+    // Debug: verificar se consulta específica está nas aparições
+    const consultaDebug = "bca01b11-d042-4090-aaef-535be181de2f";
+    const aparicoesDaConsultaDebug = aparicoesData?.data?.filter(a => a.consulta_id === consultaDebug) || [];
+    console.log(`🔍 Debug: aparições da consulta ${consultaDebug}:`, aparicoesDaConsultaDebug.length);
+    if (aparicoesDaConsultaDebug.length > 0) {
+      console.log("📊 Notas encontradas:", aparicoesDaConsultaDebug.map(a => ({ nota: a.nota, cnpj: a.cnpj_basico })));
+    }
+
     return ultimasConsultas.data.map((consulta) => {
       const comprador = compradoresMap.get(consulta.comprador || "");
+      
+      // Contar fornecedores com nota >= 60 para esta consulta
+      const fornecedoresNotaAlta = aparicoesData?.data?.filter(
+        (a) => a.consulta_id === consulta.id && (a.nota ?? 0) >= 60
+      ).length || 0;
+
+      // Debug para cada consulta
+      if (consulta.id === consultaDebug) {
+        console.log(`✅ Consulta ${consulta.id}: fornecedoresNotaAlta = ${fornecedoresNotaAlta}`);
+      }
       
       return {
         id: consulta.id,
@@ -311,9 +462,10 @@ export const DashboardComprador = () => {
         parametros: consulta.parametros,
         resultados: consulta.resultados,
         createdAt: consulta.created_at,
+        fornecedoresNotaAlta,
       };
     });
-  }, [ultimasConsultas, compradoresMap]);
+  }, [ultimasConsultas, compradoresMap, aparicoesData]);
 
 
   return (
@@ -399,7 +551,7 @@ export const DashboardComprador = () => {
             </Card>
           </Col>
           <Col xs={24} lg={12}>
-            <Card title="Últimas 5 Consultas" loading={isLoadingUltimasConsultas || isLoadingAparicoes}>
+            <Card title="Últimas 10 Consultas" loading={isLoadingUltimasConsultas || isLoadingAparicoes}>
               {isLoadingUltimasConsultas || isLoadingAparicoes ? (
                 <div style={{ textAlign: "center", padding: "40px" }}>
                   <Spin />
@@ -446,6 +598,27 @@ export const DashboardComprador = () => {
                       minute: "2-digit",
                     })}
                   />
+                  <Table.Column
+                    title="Nota ≥ 60"
+                    width={120}
+                    fixed="right"
+                    render={(_, record: { id: string; fornecedoresNotaAlta: number }) => (
+                      record.fornecedoresNotaAlta > 0 ? (
+                        <Tooltip title={`Ver ${record.fornecedoresNotaAlta} fornecedor(es) com nota >= 60`}>
+                          <Button
+                            type="primary"
+                            size="small"
+                            icon={<EyeOutlined />}
+                            onClick={() => handleVerFornecedoresNotaAlta(record.id)}
+                          >
+                            {record.fornecedoresNotaAlta} forn.
+                          </Button>
+                        </Tooltip>
+                      ) : (
+                        <Tag color="default">0</Tag>
+                      )
+                    )}
+                  />
                 </Table>
               )}
             </Card>
@@ -462,6 +635,60 @@ export const DashboardComprador = () => {
           <FornecedoresTable />
         </Card>
       </Space>
+
+      {/* Modal de Fornecedores com Nota > 60 */}
+      <Modal
+        title={`Fornecedores com Nota > 60`}
+        open={modalFornecedoresVisible}
+        onCancel={() => setModalFornecedoresVisible(false)}
+        footer={[
+          <Button key="close" onClick={() => setModalFornecedoresVisible(false)}>
+            Fechar
+          </Button>,
+        ]}
+        width={800}
+      >
+        {loadingFornecedores ? (
+          <div style={{ textAlign: "center", padding: "40px" }}>
+            <Spin />
+            <p>Carregando fornecedores...</p>
+          </div>
+        ) : fornecedoresNotaAlta.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "40px", color: "#999" }}>
+            Nenhum fornecedor com nota maior que 60 nesta consulta.
+          </div>
+        ) : (
+          <Table
+            dataSource={fornecedoresNotaAlta}
+            rowKey={(record) => `${record.cnpjBasico}-${record.cnpjOrdem}-${record.cnpjDv}`}
+            pagination={false}
+            size="small"
+          >
+            <Table.Column
+              title="Nome do Fornecedor"
+              dataIndex="nomeFornecedor"
+              render={(value) => <Text strong>{value || "-"}</Text>}
+            />
+            <Table.Column
+              title="CNPJ"
+              render={(_, record: FornecedorNotaAlta) => (
+                <Text code>{`${record.cnpjBasico}/${record.cnpjOrdem}-${record.cnpjDv}`}</Text>
+              )}
+            />
+            <Table.Column
+              title="Nota"
+              dataIndex="nota"
+              width={100}
+              render={(value: number) => {
+                let color = "green";
+                if (value <= 70) color = "cyan";
+                else if (value <= 90) color = "blue";
+                return <Tag color={color}>{value}</Tag>;
+              }}
+            />
+          </Table>
+        )}
+      </Modal>
     </div>
   );
 };
