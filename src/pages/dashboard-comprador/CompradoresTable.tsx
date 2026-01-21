@@ -10,6 +10,11 @@ export const CompradoresTable = () => {
   const [expandedRowKeys, setExpandedRowKeys] = useState<React.Key[]>([]);
   const [sortField, setSortField] = useState<string | undefined>(undefined);
   const [sortOrder, setSortOrder] = useState<"asc" | "desc" | undefined>(undefined);
+  // Estado local para paginação quando há ordenação por estatísticas
+  const [localPagination, setLocalPagination] = useState<{ current: number; pageSize: number }>({
+    current: 1,
+    pageSize: 10,
+  });
 
   // Buscar todos os compradores quando necessário para ordenação completa
   const { data: todosCompradores } = useList<UsuarioComprador>({
@@ -274,14 +279,14 @@ export const CompradoresTable = () => {
       return tableProps.dataSource || [];
     }
 
-    const pagination = tableProps.pagination && typeof tableProps.pagination !== 'boolean' ? tableProps.pagination : null;
-    const current = pagination?.current || 1;
-    const pageSize = pagination?.pageSize || 10;
+    // Usar paginação local quando há ordenação por estatísticas
+    const current = localPagination.current;
+    const pageSize = localPagination.pageSize;
     const start = (current - 1) * pageSize;
     const end = start + pageSize;
 
     return compradoresOrdenados.slice(start, end);
-  }, [ordenandoPorEstatisticas, compradoresOrdenados, tableProps.pagination, tableProps.dataSource]);
+  }, [ordenandoPorEstatisticas, compradoresOrdenados, localPagination, tableProps.dataSource]);
 
   // Garantir que os dados estão no formato correto
   const dataSource = dataSourceFinal;
@@ -340,31 +345,32 @@ export const CompradoresTable = () => {
         : sorter.order === "descend" ? "desc" 
         : undefined
       );
-      // Resetar para página 1 quando ordenar
-      if (pagination && pagination.current !== 1) {
-        // Atualizar paginação do Refine diretamente
-        const tablePagination = tableProps.pagination && typeof tableProps.pagination !== 'boolean' ? tableProps.pagination : null;
-        if (tablePagination?.onChange) {
-          tablePagination.onChange(1, pagination.pageSize || 10);
-        }
-      }
+      // Resetar para página 1 quando ordenar (nova ordenação)
+      setLocalPagination({
+        current: 1,
+        pageSize: pagination?.pageSize || localPagination.pageSize || 10,
+      });
       // CRÍTICO: NÃO chamar tableProps.onChange quando ordenando por estatísticas
       // Isso evita que o Refine tente fazer query SQL com coluna inexistente
       // A ordenação será feita localmente através do useMemo
       return; // Não continuar - não chamar tableProps.onChange
     } else if (isMudancaPaginaComOrdenacao) {
-      // Se já estamos ordenando por estatísticas e apenas mudando página, atualizar paginação
-      console.log("📄 Mudança de página com ordenação por estatísticas ativa");
-      const tablePagination = tableProps.pagination && typeof tableProps.pagination !== 'boolean' ? tableProps.pagination : null;
-      if (tablePagination?.onChange) {
-        tablePagination.onChange(pagination.current, pagination.pageSize || 10);
-      }
+      // Se já estamos ordenando por estatísticas e apenas mudando página, atualizar paginação local
+      console.log("📄 Mudança de página com ordenação por estatísticas ativa", {
+        current: pagination?.current,
+        pageSize: pagination?.pageSize,
+      });
+      setLocalPagination({
+        current: pagination?.current || 1,
+        pageSize: pagination?.pageSize || localPagination.pageSize || 10,
+      });
       // Não chamar tableProps.onChange para evitar query SQL
       return;
     } else {
-      // Se não está ordenando por estatísticas, limpar estado
+      // Se não está ordenando por estatísticas, limpar estado e resetar paginação local
       setSortField(undefined);
       setSortOrder(undefined);
+      setLocalPagination({ current: 1, pageSize: 10 });
     }
 
     // Chamar handler original do Refine para outras colunas e paginação
@@ -391,32 +397,41 @@ export const CompradoresTable = () => {
         }}
         pagination={(() => {
           const tablePagination = tableProps.pagination && typeof tableProps.pagination !== 'boolean' ? tableProps.pagination : null;
+          
+          if (ordenandoPorEstatisticas) {
+            // Quando há ordenação por estatísticas, usar paginação local
+            return {
+              current: localPagination.current,
+              pageSize: localPagination.pageSize,
+              total: todosCompradores?.total || compradoresOrdenados.length,
+              showSizeChanger: true,
+              showTotal: (total, range) => `${range[0]}-${range[1]} de ${total} compradores`,
+              onChange: (page: number, pageSize?: number) => {
+                console.log("📄 onChange pagination local:", { page, pageSize });
+                setLocalPagination({
+                  current: page,
+                  pageSize: pageSize || localPagination.pageSize,
+                });
+              },
+              onShowSizeChange: (current: number, size: number) => {
+                console.log("📄 onShowSizeChange pagination local:", { current, size });
+                setLocalPagination({
+                  current: 1, // Resetar para primeira página ao mudar tamanho
+                  pageSize: size,
+                });
+              },
+            };
+          }
+          
+          // Quando não há ordenação por estatísticas, usar paginação do Refine
           return {
             current: tablePagination?.current || 1,
             pageSize: tablePagination?.pageSize || 10,
-            total: ordenandoPorEstatisticas 
-              ? (todosCompradores?.total || compradoresOrdenados.length)
-              : (tablePagination?.total || 0),
+            total: tablePagination?.total || 0,
             showSizeChanger: true,
             showTotal: (total, range) => `${range[0]}-${range[1]} de ${total} compradores`,
-            onChange: (page: number, pageSize?: number) => {
-              // Quando há ordenação por estatísticas, o handleTableChange já cuida da paginação
-              // Mas precisamos garantir que a paginação seja atualizada
-              if (ordenandoPorEstatisticas) {
-                if (tablePagination?.onChange) {
-                  tablePagination.onChange(page, pageSize || 10);
-                }
-              } else {
-                if (tablePagination?.onChange) {
-                  tablePagination.onChange(page, pageSize || 10);
-                }
-              }
-            },
-            onShowSizeChange: (current: number, size: number) => {
-              if (tablePagination?.onShowSizeChange) {
-                tablePagination.onShowSizeChange(current, size);
-              }
-            },
+            onChange: tablePagination?.onChange,
+            onShowSizeChange: tablePagination?.onShowSizeChange,
           };
         })()}
         onChange={handleTableChange}
