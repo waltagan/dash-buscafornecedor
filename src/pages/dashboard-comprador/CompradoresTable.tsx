@@ -324,6 +324,9 @@ export const CompradoresTable = () => {
        sorter.columnKey === "totalConsultas" ||
        sorter.columnKey === "consultas30Dias");
     
+    // Verificar se já estamos ordenando por estatísticas e apenas mudando página
+    const isMudancaPaginaComOrdenacao = ordenandoPorEstatisticas && pagination && !isOrdenacaoEstatisticas;
+    
     if (isOrdenacaoEstatisticas) {
       console.log("✅ Ordenação por estatísticas detectada - bloqueando query do servidor");
       // Atualizar estado de ordenação para colunas de estatísticas
@@ -349,6 +352,15 @@ export const CompradoresTable = () => {
       // Isso evita que o Refine tente fazer query SQL com coluna inexistente
       // A ordenação será feita localmente através do useMemo
       return; // Não continuar - não chamar tableProps.onChange
+    } else if (isMudancaPaginaComOrdenacao) {
+      // Se já estamos ordenando por estatísticas e apenas mudando página, atualizar paginação
+      console.log("📄 Mudança de página com ordenação por estatísticas ativa");
+      const tablePagination = tableProps.pagination && typeof tableProps.pagination !== 'boolean' ? tableProps.pagination : null;
+      if (tablePagination?.onChange) {
+        tablePagination.onChange(pagination.current, pagination.pageSize || 10);
+      }
+      // Não chamar tableProps.onChange para evitar query SQL
+      return;
     } else {
       // Se não está ordenando por estatísticas, limpar estado
       setSortField(undefined);
@@ -387,8 +399,24 @@ export const CompradoresTable = () => {
               : (tablePagination?.total || 0),
             showSizeChanger: true,
             showTotal: (total, range) => `${range[0]}-${range[1]} de ${total} compradores`,
-            onChange: tablePagination?.onChange,
-            onShowSizeChange: tablePagination?.onShowSizeChange,
+            onChange: (page: number, pageSize?: number) => {
+              // Quando há ordenação por estatísticas, o handleTableChange já cuida da paginação
+              // Mas precisamos garantir que a paginação seja atualizada
+              if (ordenandoPorEstatisticas) {
+                if (tablePagination?.onChange) {
+                  tablePagination.onChange(page, pageSize || 10);
+                }
+              } else {
+                if (tablePagination?.onChange) {
+                  tablePagination.onChange(page, pageSize || 10);
+                }
+              }
+            },
+            onShowSizeChange: (current: number, size: number) => {
+              if (tablePagination?.onShowSizeChange) {
+                tablePagination.onShowSizeChange(current, size);
+              }
+            },
           };
         })()}
         onChange={handleTableChange}

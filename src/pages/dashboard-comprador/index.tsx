@@ -128,11 +128,11 @@ export const DashboardComprador = () => {
     },
   });
 
-  // Buscar últimas 10 consultas
+  // Buscar últimas 50 consultas
   const { data: ultimasConsultas, isLoading: isLoadingUltimasConsultas } = useList<Consultas>({
     resource: "consultas",
     pagination: {
-      pageSize: 10,
+      pageSize: 50,
       current: 1,
     },
     sorters: [
@@ -420,6 +420,9 @@ export const DashboardComprador = () => {
     data: novosCompradoresData,
     xField: "date",
     yField: "count",
+    yAxis: {
+      min: 0,
+    },
     point: {
       size: 5,
       shape: "diamond",
@@ -437,6 +440,9 @@ export const DashboardComprador = () => {
     data: volumeConsultasData,
     xField: "date",
     yField: "count",
+    yAxis: {
+      min: 0,
+    },
     color: "#52c41a",
     columnStyle: {
       radius: [4, 4, 0, 0],
@@ -447,6 +453,9 @@ export const DashboardComprador = () => {
     data: novosFornecedoresData,
     xField: "date",
     yField: "count",
+    yAxis: {
+      min: 0,
+    },
     point: {
       size: 5,
       shape: "diamond",
@@ -631,7 +640,7 @@ export const DashboardComprador = () => {
             </Card>
           </Col>
           <Col xs={24} lg={12}>
-            <Card title="Últimas 10 Consultas" loading={isLoadingUltimasConsultas || isLoadingAparicoes}>
+            <Card title="Últimas 50 Consultas" loading={isLoadingUltimasConsultas || isLoadingAparicoes}>
               {isLoadingUltimasConsultas || isLoadingAparicoes ? (
                 <div style={{ textAlign: "center", padding: "40px" }}>
                   <Spin />
