@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { useList } from "@refinedev/core";
 import { Card, Row, Col, Statistic, Radio, Space, Spin, Table, Typography, Tooltip, Button, Modal, Tag } from "antd";
 import { UserOutlined, SearchOutlined, EyeOutlined } from "@ant-design/icons";
@@ -7,6 +7,7 @@ import { CompradoresTable } from "./CompradoresTable";
 import { FornecedoresTable } from "./FornecedoresTable";
 import { UsuarioComprador, Consultas, UsuarioFornecedor, Aparicoes } from "../../types/database";
 import { createClient } from "@supabase/supabase-js";
+import { supabaseClient } from "../../utils/supabaseClient";
 
 const { Text } = Typography;
 
@@ -143,67 +144,57 @@ export const DashboardComprador = () => {
     ],
   });
 
-  // Buscar TODAS as aparições (sem limite) - ordenando por data mais recente
-  const { data: aparicoesData, isLoading: isLoadingAparicoes } = useList<Aparicoes>({
-    resource: "aparicoes",
-    pagination: {
-      pageSize: 100000, // Garantir que todas as aparições sejam carregadas
-      mode: "server",
-    },
-    sorters: [
-      {
-        field: "created_at",
-        order: "desc",
-      },
-    ],
-  });
-
-  // Log para debug: verificar se todas as aparições estão sendo carregadas
-  console.log("📦 Aparições carregadas:", aparicoesData?.data?.length || 0, "de", aparicoesData?.total || 0);
+  // Estado para contagem de fornecedores com nota >= 60 por consulta
+  const [aparicoesCountByConsulta, setAparicoesCountByConsulta] = useState<Map<string, number>>(new Map());
+  const [isLoadingAparicoesCount, setIsLoadingAparicoesCount] = useState(false);
+  // Estado para aparições completas por CNPJ (carregadas sob demanda no modal)
+  const [modalAparicoesPorCnpj, setModalAparicoesPorCnpj] = useState<Map<string, Aparicoes[]>>(new Map());
 
   // Função para buscar fornecedores com nota > 60 para uma consulta
+  // CORRIGIDO: Usa queries diretas ao Supabase em vez de filtrar dados pré-carregados
+  // que estavam limitados a 10K linhas pelo PostgREST (de 100K+ no banco)
   const handleVerFornecedoresNotaAlta = async (consultaId: string) => {
     setLoadingFornecedores(true);
     setModalFornecedoresVisible(true);
 
-    console.log("🔍 Buscando fornecedores com nota >= 60 para consulta:", consultaId);
-    console.log("📦 Total de aparições carregadas:", aparicoesData?.data?.length || 0);
-    
-    // Debug: mostrar exemplos de consulta_id na tabela aparições
-    const exemploConsultaIds = aparicoesData?.data?.slice(0, 5).map(a => a.consulta_id) || [];
-    console.log("📋 Exemplos de consulta_id nas aparições:", exemploConsultaIds);
-    console.log("🔑 ID da consulta selecionada:", consultaId);
-
     try {
-      // Debug: mostrar algumas aparições dessa consulta
-      const aparicoesDestaConsulta = aparicoesData?.data.filter(
-        (a) => a.consulta_id === consultaId
-      ) || [];
-      console.log("📊 Aparições desta consulta:", aparicoesDestaConsulta.length);
-      console.log("📊 Notas das aparições:", aparicoesDestaConsulta.map(a => ({ nota: a.nota, cnpj: a.cnpj_basico })));
+      // 1. Buscar aparições desta consulta com nota >= 60 diretamente no banco
+      const { data: aparicoesFiltradas, error: errFiltradas } = await supabaseClient
+        .from("aparicoes")
+        .select("*")
+        .eq("consulta_id", consultaId)
+        .gte("nota", 60);
 
-      // Filtrar aparições dessa consulta com nota >= 60 (corrigido para >= ao invés de >)
-      const aparicoesFiltradas = aparicoesData?.data.filter(
-        (a) => a.consulta_id === consultaId && (a.nota ?? 0) >= 60
-      ) || [];
+      if (errFiltradas) {
+        console.error("Erro ao buscar aparições filtradas:", errFiltradas);
+      }
 
-      console.log("✅ Aparições com nota >= 60:", aparicoesFiltradas.length);
-
-      if (aparicoesFiltradas.length === 0) {
+      if (!aparicoesFiltradas || aparicoesFiltradas.length === 0) {
         setFornecedoresNotaAlta([]);
         setLoadingFornecedores(false);
         return;
       }
 
-      // Buscar nomes e sites dos fornecedores no cnpj_db
-      const cnpjDbClient = createCnpjDbClient();
+      // 2. Obter CNPJs únicos dos fornecedores com nota >= 60
       const cnpjsBasicos = [...new Set(aparicoesFiltradas.map(a => a.cnpj_basico))];
 
+      // 3. Buscar TODAS as aparições desses CNPJs (histórico completo)
+      const { data: todasAparicoesCnpjs, error: errTodas } = await supabaseClient
+        .from("aparicoes")
+        .select("*")
+        .in("cnpj_basico", cnpjsBasicos)
+        .order("created_at", { ascending: false });
+
+      if (errTodas) {
+        console.error("Erro ao buscar todas aparições dos CNPJs:", errTodas);
+      }
+
+      // 4. Buscar nomes e sites dos fornecedores no cnpj_db
+      const cnpjDbClient = createCnpjDbClient();
       let nomesMap = new Map<string, string>();
       let sitesMap = new Map<string, string>();
 
       if (cnpjDbClient) {
-        // Buscar nomes das empresas
         const { data: empresas } = await cnpjDbClient
           .from("empresas")
           .select("cnpj_basico, razao_social")
@@ -215,7 +206,6 @@ export const DashboardComprador = () => {
           });
         }
 
-        // Buscar sites dos estabelecimentos
         const { data: estabelecimentos } = await cnpjDbClient
           .from("estabelecimento")
           .select("cnpj_basico, cnpj_ordem, cnpj_dv, site")
@@ -231,7 +221,7 @@ export const DashboardComprador = () => {
         }
       }
 
-      // Calcular estatísticas de TODAS as aparições de cada fornecedor
+      // 5. Calcular estatísticas e armazenar aparições por CNPJ
       const statsMap = new Map<string, {
         totalAparicoes: number;
         score0_10: number;
@@ -241,11 +231,18 @@ export const DashboardComprador = () => {
         score70_90: number;
         score90_100: number;
       }>();
+      const aparicoesPorCnpj = new Map<string, Aparicoes[]>();
 
-      // Processar TODAS as aparições para calcular estatísticas
-      aparicoesData?.data?.forEach((aparicao) => {
+      (todasAparicoesCnpjs || []).forEach((aparicao) => {
         const cnpjKey = `${aparicao.cnpj_basico}-${aparicao.cnpj_ordem}-${aparicao.cnpj_dv}`;
-        
+
+        // Armazenar aparição por CNPJ (para drill-down no modal)
+        if (!aparicoesPorCnpj.has(cnpjKey)) {
+          aparicoesPorCnpj.set(cnpjKey, []);
+        }
+        aparicoesPorCnpj.get(cnpjKey)!.push(aparicao);
+
+        // Calcular estatísticas
         if (!statsMap.has(cnpjKey)) {
           statsMap.set(cnpjKey, {
             totalAparicoes: 0,
@@ -270,7 +267,10 @@ export const DashboardComprador = () => {
         else stats.score90_100++;
       });
 
-      // Montar lista de fornecedores
+      // Guardar aparições por CNPJ para o expandedRowRender do modal
+      setModalAparicoesPorCnpj(aparicoesPorCnpj);
+
+      // 6. Montar lista de fornecedores
       const fornecedores: FornecedorNotaAlta[] = aparicoesFiltradas.map((a) => {
         const cnpjKey = `${a.cnpj_basico}-${a.cnpj_ordem}-${a.cnpj_dv}`;
         const stats = statsMap.get(cnpjKey) || {
@@ -294,9 +294,7 @@ export const DashboardComprador = () => {
         };
       });
 
-      // Ordenar por nota (maior primeiro)
       fornecedores.sort((a, b) => b.nota - a.nota);
-
       setFornecedoresNotaAlta(fornecedores);
     } catch (err) {
       console.error("Erro ao buscar fornecedores:", err);
@@ -519,31 +517,50 @@ export const DashboardComprador = () => {
     }
   };
 
-  // Processar dados das últimas 5 consultas (independente de ter nota alta ou não)
+  // Buscar contagem de fornecedores com nota >= 60 para as últimas 50 consultas
+  // CORRIGIDO: Usa query direta ao Supabase em vez de filtrar dados pré-carregados
+  // que estavam limitados pelo PostgREST max-rows (10K de 100K+ registros)
+  useEffect(() => {
+    if (!ultimasConsultas?.data || ultimasConsultas.data.length === 0) return;
+
+    const fetchAparicoesCount = async () => {
+      setIsLoadingAparicoesCount(true);
+      try {
+        const consultaIds = ultimasConsultas.data.map(c => c.id);
+        const { data, error } = await supabaseClient
+          .from("aparicoes")
+          .select("consulta_id, nota")
+          .in("consulta_id", consultaIds)
+          .gte("nota", 60);
+
+        if (error) {
+          console.error("Erro ao buscar contagem de aparições:", error);
+          return;
+        }
+
+        const countMap = new Map<string, number>();
+        (data || []).forEach((a: { consulta_id: string }) => {
+          countMap.set(a.consulta_id, (countMap.get(a.consulta_id) || 0) + 1);
+        });
+        setAparicoesCountByConsulta(countMap);
+      } catch (err) {
+        console.error("Erro ao buscar contagem de aparições:", err);
+      } finally {
+        setIsLoadingAparicoesCount(false);
+      }
+    };
+
+    fetchAparicoesCount();
+  }, [ultimasConsultas]);
+
+  // Processar dados das últimas 50 consultas
   const consultasProcessadas = useMemo(() => {
     if (!ultimasConsultas?.data) return [];
 
-    // Debug: verificar se consulta específica está nas aparições
-    const consultaDebug = "bca01b11-d042-4090-aaef-535be181de2f";
-    const aparicoesDaConsultaDebug = aparicoesData?.data?.filter(a => a.consulta_id === consultaDebug) || [];
-    console.log(`🔍 Debug: aparições da consulta ${consultaDebug}:`, aparicoesDaConsultaDebug.length);
-    if (aparicoesDaConsultaDebug.length > 0) {
-      console.log("📊 Notas encontradas:", aparicoesDaConsultaDebug.map(a => ({ nota: a.nota, cnpj: a.cnpj_basico })));
-    }
-
     return ultimasConsultas.data.map((consulta) => {
       const comprador = compradoresMap.get(consulta.comprador || "");
-      
-      // Contar fornecedores com nota >= 60 para esta consulta
-      const fornecedoresNotaAlta = aparicoesData?.data?.filter(
-        (a) => a.consulta_id === consulta.id && (a.nota ?? 0) >= 60
-      ).length || 0;
+      const fornecedoresNotaAlta = aparicoesCountByConsulta.get(consulta.id) || 0;
 
-      // Debug para cada consulta
-      if (consulta.id === consultaDebug) {
-        console.log(`✅ Consulta ${consulta.id}: fornecedoresNotaAlta = ${fornecedoresNotaAlta}`);
-      }
-      
       return {
         id: consulta.id,
         comprador: comprador?.nome || "N/A",
@@ -554,7 +571,7 @@ export const DashboardComprador = () => {
         fornecedoresNotaAlta,
       };
     });
-  }, [ultimasConsultas, compradoresMap, aparicoesData]);
+  }, [ultimasConsultas, compradoresMap, aparicoesCountByConsulta]);
 
 
   return (
@@ -640,8 +657,8 @@ export const DashboardComprador = () => {
             </Card>
           </Col>
           <Col xs={24} lg={12}>
-            <Card title="Últimas 50 Consultas" loading={isLoadingUltimasConsultas || isLoadingAparicoes}>
-              {isLoadingUltimasConsultas || isLoadingAparicoes ? (
+            <Card title="Últimas 50 Consultas" loading={isLoadingUltimasConsultas || isLoadingAparicoesCount}>
+              {isLoadingUltimasConsultas || isLoadingAparicoesCount ? (
                 <div style={{ textAlign: "center", padding: "40px" }}>
                   <Spin />
                 </div>
@@ -757,12 +774,9 @@ export const DashboardComprador = () => {
               expandedRowKeys: expandedModalRowKeys,
               onExpandedRowsChange: (keys) => setExpandedModalRowKeys(Array.from(keys)),
               expandedRowRender: (record: FornecedorNotaAlta) => {
-                // Buscar aparições deste fornecedor
-                const aparicoesFornecedor = aparicoesData?.data?.filter(
-                  (a) => a.cnpj_basico === record.cnpjBasico && 
-                         a.cnpj_ordem === record.cnpjOrdem && 
-                         a.cnpj_dv === record.cnpjDv
-                ) || [];
+                // Buscar aparições deste fornecedor do estado (carregado sob demanda)
+                const cnpjKey = `${record.cnpjBasico}-${record.cnpjOrdem}-${record.cnpjDv}`;
+                const aparicoesFornecedor = modalAparicoesPorCnpj.get(cnpjKey) || [];
 
                 // Criar mapa de consulta_id -> nota
                 const notasPorConsulta = new Map<string, number | null>();

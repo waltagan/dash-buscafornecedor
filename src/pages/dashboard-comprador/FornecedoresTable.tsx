@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect } from "react";
 import { Aparicoes, UsuarioFornecedor, Consultas, UsuarioComprador } from "../../types/database";
 import { ShowButton } from "@refinedev/antd";
 import { createClient } from "@supabase/supabase-js";
+import { supabaseClient } from "../../utils/supabaseClient";
 
 const { Text } = Typography;
 
@@ -90,16 +91,50 @@ export const FornecedoresTable = () => {
     });
   };
 
-  // Buscar todas as aparições
-  const { data: aparicoesData, isLoading: isLoadingAparicoes } = useList<Aparicoes>({
-    resource: "aparicoes",
-    pagination: {
-      mode: "off",
-    },
-    meta: {
-      select: "*",
-    },
-  });
+  // Carregar TODAS as aparições em lotes (PostgREST limita a 10K por request)
+  // CORRIGIDO: useList com mode:"off" retornava apenas 10K de 100K+ registros
+  const [allAparicoes, setAllAparicoes] = useState<Aparicoes[]>([]);
+  const [isLoadingAparicoes, setIsLoadingAparicoes] = useState(true);
+
+  useEffect(() => {
+    const fetchAllAparicoes = async () => {
+      setIsLoadingAparicoes(true);
+      const allData: Aparicoes[] = [];
+      const pageSize = 10000; // Máximo que o Supabase retorna por request
+      let page = 0;
+      let hasMore = true;
+
+      while (hasMore) {
+        const from = page * pageSize;
+        const to = from + pageSize - 1;
+
+        const { data, error } = await supabaseClient
+          .from("aparicoes")
+          .select("*")
+          .range(from, to)
+          .order("created_at", { ascending: false });
+
+        if (error) {
+          console.error(`Erro ao buscar aparições (lote ${page + 1}):`, error);
+          break;
+        }
+
+        if (data && data.length > 0) {
+          allData.push(...data);
+          hasMore = data.length === pageSize;
+        } else {
+          hasMore = false;
+        }
+        page++;
+      }
+
+      console.log(`✅ FornecedoresTable: ${allData.length} aparições carregadas em ${page} lotes`);
+      setAllAparicoes(allData);
+      setIsLoadingAparicoes(false);
+    };
+
+    fetchAllAparicoes();
+  }, []);
 
   // Buscar todos os fornecedores para pegar nomes e dados de cadastro/plano
   const { data: fornecedoresData, isLoading: isLoadingFornecedores } = useList<UsuarioFornecedor>({
@@ -168,7 +203,7 @@ export const FornecedoresTable = () => {
 
   // Agregar aparições por fornecedor - SEM BUSCAR NOMES AINDA
   const fornecedoresAgregados = useMemo(() => {
-    if (!aparicoesData?.data || aparicoesData.data.length === 0) return [];
+    if (!allAparicoes || allAparicoes.length === 0) return [];
 
     const agregado = new Map<string, {
       cnpjBasico: string;
@@ -177,7 +212,7 @@ export const FornecedoresTable = () => {
       aparicoes: Aparicoes[];
     }>();
 
-    aparicoesData.data.forEach((aparicao) => {
+    allAparicoes.forEach((aparicao) => {
       const cnpjKey = `${aparicao.cnpj_basico}-${aparicao.cnpj_ordem}-${aparicao.cnpj_dv}`;
       
       if (!agregado.has(cnpjKey)) {
@@ -231,7 +266,7 @@ export const FornecedoresTable = () => {
     });
 
     return resultado.sort((a, b) => b.totalAparicoes - a.totalAparicoes);
-  }, [aparicoesData, fornecedoresMap]);
+  }, [allAparicoes, fornecedoresMap]);
 
   // Buscar TODOS os nomes de uma vez (solução simples e direta)
   useEffect(() => {
@@ -375,7 +410,7 @@ export const FornecedoresTable = () => {
     cnpjDv: string;
   }) => {
     // Buscar aparições deste fornecedor
-    const aparicoesFornecedor = aparicoesData?.data.filter(
+    const aparicoesFornecedor = allAparicoes.filter(
       (a) => a.cnpj_basico === cnpjBasico && 
              a.cnpj_ordem === cnpjOrdem && 
              a.cnpj_dv === cnpjDv
